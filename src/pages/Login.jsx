@@ -168,7 +168,12 @@ export default function Login() {
           )}
         </div>
 
-        <p style={{ textAlign: 'center', color: '#999', fontSize: '11px', marginTop: '16px' }}>El Rincón Criollo · Panel de vendedor</p>
+        <div style={{ textAlign: 'center', marginTop: '16px' }}>
+          <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#999', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+            ← Volver a la rifa
+          </button>
+        </div>
+        <p style={{ textAlign: 'center', color: '#999', fontSize: '11px', marginTop: '8px' }}>El Rincón Criollo · Panel de vendedor</p>
       </div>
     </div>
   )
