@@ -45,6 +45,14 @@ export default function RifaEditor({ rifa, onClose }) {
   const [whatsapp, setWhatsapp] = useState(rifa.whatsapp || '')
   const [linkMP, setLinkMP] = useState(rifa.linkMercadoPago || '')
   const [premios, setPremios] = useState(rifa.premios || [])
+  const [fechaFin, setFechaFin] = useState(() => {
+    if (!rifa.fechaFin) return ''
+    try {
+      const d = rifa.fechaFin.toDate ? rifa.fechaFin.toDate() : new Date(rifa.fechaFin)
+      const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      return local.toISOString().slice(0, 16)
+    } catch { return '' }
+  })
   const [guardando, setGuardando] = useState(false)
   const [subiendo, setSubiendo] = useState(null)
   const [mensaje, setMensaje] = useState('')
@@ -67,7 +75,7 @@ export default function RifaEditor({ rifa, onClose }) {
   async function guardar() {
     setGuardando(true); setMensaje('')
     try {
-      await actualizarConfigRifa({ titulo, descripcion, precio: Number(precio), whatsapp, linkMercadoPago: linkMP })
+      await actualizarConfigRifa({ titulo, descripcion, precio: Number(precio), whatsapp, linkMercadoPago: linkMP, fechaFin: fechaFin ? new Date(fechaFin) : null })
       await actualizarPremios(premios)
       setMensaje('¡Rifa guardada correctamente!')
       setTimeout(() => { setMensaje(''); onClose() }, 1500)
@@ -119,6 +127,18 @@ export default function RifaEditor({ rifa, onClose }) {
               <div>
                 <label style={s.label}>Link de Mercado Pago</label>
                 <input value={linkMP} onChange={e => setLinkMP(e.target.value)} style={s.input} placeholder="https://mpago.la/..." />
+              </div>
+              <div>
+                <label style={s.label}>Fecha límite de la rifa (opcional)</label>
+                <input type="datetime-local" value={fechaFin} onChange={e => setFechaFin(e.target.value)} style={s.input} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                  <p style={{ color: '#555', fontSize: '11px', margin: 0 }}>Si la ponés, aparece cuenta regresiva en la rifa</p>
+                  {fechaFin && (
+                    <button type="button" onClick={() => setFechaFin('')} style={{ background: 'none', border: 'none', color: '#ef5350', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
+                      ✕ Quitar fecha
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

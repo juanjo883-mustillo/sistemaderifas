@@ -1,7 +1,36 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { reservarNumeros } from '../firebase/rifaService'
+import { reservarNumeros, liberarReservaTemporal } from '../firebase/rifaService'
 import { APP_CONFIG } from '../firebase/appConfig'
+
+function useReservaCountdown(expiraEnISO, onExpired) {
+  const [restante, setRestante] = useState(null)
+  const onExpiredRef = useRef(onExpired)
+  useEffect(() => { onExpiredRef.current = onExpired }, [onExpired])
+
+  useEffect(() => {
+    if (!expiraEnISO) return
+    const target = new Date(expiraEnISO)
+    function tick() {
+      const diff = Math.max(0, target - new Date())
+      setRestante(diff)
+      if (diff === 0) onExpiredRef.current?.()
+      return diff
+    }
+    if (tick() === 0) return
+    const id = setInterval(() => { if (tick() === 0) clearInterval(id) }, 1000)
+    return () => clearInterval(id)
+  }, [expiraEnISO])
+
+  return restante
+}
+
+function formatSegundos(ms) {
+  if (ms === null) return ''
+  const m = Math.floor(ms / 60000)
+  const s = Math.floor((ms % 60000) / 1000)
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
 
 const s = {
   page: { minHeight: '100vh', background: '#1a1a1a', padding: '32px 16px' },
@@ -26,11 +55,28 @@ export default function Pago() {
   const [form, setForm] = useState({ nombre: '', apellido: '', telefono: '', nombrePago: '', metodoPago: '' })
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
+  const [expirado, setExpirado] = useState(false)
 
   if (!state?.numeros) { navigate('/'); return null }
 
-  const { numeros, precio, whatsapp, linkMercadoPago } = state
+  const { numeros, precio, whatsapp, linkMercadoPago, reservaId, expiraEn } = state
   const total = numeros.length * precio
+
+  const tiempoRestante = useReservaCountdown(expiraEn, () => setExpirado(true))
+
+  useEffect(() => {
+    if (!expirado) return
+    liberarReservaTemporal(numeros).catch(() => {})
+    const id = setTimeout(() => navigate('/'), 5000)
+    return () => clearTimeout(id)
+  }, [expirado])
+
+  async function handleVolver() {
+    if (numeros && reservaId) {
+      await liberarReservaTemporal(numeros).catch(() => {})
+    }
+    navigate('/')
+  }
 
   function handleChange(e) {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -42,7 +88,7 @@ export default function Pago() {
     setCargando(true)
     setError('')
     try {
-      await reservarNumeros({ numeros, ...form })
+      await reservarNumeros({ numeros, ...form, reservaId })
 
       if (form.metodoPago === 'mercadopago') {
         window.open(linkMercadoPago || APP_CONFIG.linkMercadoPago, '_blank')
@@ -63,11 +109,29 @@ export default function Pago() {
     }
   }
 
-  const disabled = cargando
+  const tiempoUrgente = tiempoRestante !== null && tiempoRestante < 120000
 
   return (
     <div style={s.page}>
       <div style={s.inner}>
+
+        {/* Banner expirado */}
+        {expirado && (
+          <div style={{ background: '#3a1a1a', border: '1px solid #ef5350', borderRadius: '14px', padding: '16px', textAlign: 'center', marginBottom: '16px' }}>
+            <p style={{ color: '#ef5350', fontWeight: '700', fontSize: '14px', margin: '0 0 4px' }}>⏰ Tu reserva expiró</p>
+            <p style={{ color: '#888', fontSize: '12px', margin: 0 }}>Los números fueron liberados. Volvés al inicio en unos segundos...</p>
+          </div>
+        )}
+
+        {/* Countdown reserva */}
+        {tiempoRestante !== null && !expirado && (
+          <div style={{ background: tiempoUrgente ? '#3a1e08' : '#111', border: `1px solid ${tiempoUrgente ? '#ef8c35' : '#333'}`, borderRadius: '12px', padding: '10px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <p style={{ color: '#888', fontSize: '12px', margin: 0 }}>Tiempo para completar</p>
+            <p style={{ color: tiempoUrgente ? '#ef8c35' : '#e8bc4a', fontWeight: '700', fontSize: '16px', margin: 0, fontFamily: 'Georgia, serif' }}>
+              ⏱ {formatSegundos(tiempoRestante)}
+            </p>
+          </div>
+        )}
 
         {/* Header */}
         <div style={s.headerCard}>
@@ -79,9 +143,9 @@ export default function Pago() {
           <p style={{ color: '#fff', fontWeight: '700', fontSize: '18px', margin: '4px 0 0' }}>${total.toLocaleString()}</p>
         </div>
 
-        <button onClick={() => navigate('/')} style={s.btnVolver}>← Volver</button>
+        <button onClick={handleVolver} style={s.btnVolver}>← Volver</button>
 
-        <form onSubmit={handleSubmit} style={s.form}>
+        <form onSubmit={handleSubmit} style={{ ...s.form, opacity: expirado ? 0.5 : 1, pointerEvents: expirado ? 'none' : 'auto' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -106,7 +170,6 @@ export default function Pago() {
               <p style={s.hint}>Completá si el pago lo hace otra persona</p>
             </div>
 
-            {/* Método de pago */}
             <div>
               <label style={s.label}>Método de pago *</label>
               <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
@@ -117,12 +180,7 @@ export default function Pago() {
                   const activo = form.metodoPago === valor
                   return (
                     <button key={valor} type="button" onClick={() => setForm(p => ({ ...p, metodoPago: valor }))}
-                      style={{
-                        ...s.metodoBtnBase,
-                        borderColor: activo ? '#c9a035' : '#2a2a2a',
-                        background: activo ? '#1e1a0a' : '#1a1a1a',
-                        color: activo ? '#e8bc4a' : '#888',
-                      }}>
+                      style={{ ...s.metodoBtnBase, borderColor: activo ? '#c9a035' : '#2a2a2a', background: activo ? '#1e1a0a' : '#1a1a1a', color: activo ? '#e8bc4a' : '#888' }}>
                       {icono} {label}
                     </button>
                   )
@@ -138,7 +196,7 @@ export default function Pago() {
 
             {error && <div style={s.error}>⚠️ {error}</div>}
 
-            <button type="submit" disabled={disabled} style={disabled ? s.btnConfirmarDis : s.btnConfirmar}>
+            <button type="submit" disabled={cargando} style={cargando ? s.btnConfirmarDis : s.btnConfirmar}>
               {cargando ? 'Reservando...' : 'Confirmar reserva'}
             </button>
           </div>

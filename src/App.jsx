@@ -4,6 +4,7 @@ import Pago from './pages/Pago'
 import Confirmacion from './pages/Confirmacion'
 import Login from './pages/Login'
 import Vendedor from './pages/Vendedor'
+import MiReserva from './pages/MiReserva'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/confirmacion" element={<Confirmacion />} />
         <Route path="/login" element={<Login />} />
         <Route path="/vendedor" element={<Vendedor />} />
+        <Route path="/mi-reserva" element={<MiReserva />} />
       </Routes>
     </BrowserRouter>
   )

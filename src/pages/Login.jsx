@@ -1,9 +1,21 @@
 import { useState } from 'react'
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth'
-import { auth } from '../firebase/config'
+import { doc, getDoc } from 'firebase/firestore'
+import { auth, db } from '../firebase/config'
 import { useNavigate } from 'react-router-dom'
 
-const CODIGO_ACCESO = 'rinconcriollo2025'
+async function hashTexto(texto) {
+  const data = new TextEncoder().encode(texto)
+  const buffer = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function validarCodigo(codigo) {
+  const snap = await getDoc(doc(db, 'config', 'registro'))
+  if (!snap.exists()) return false
+  const hashIngresado = await hashTexto(codigo)
+  return hashIngresado === snap.data().codigoHash
+}
 
 const s = {
   page: { minHeight: '100vh', background: '#f5f0e8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' },
@@ -41,12 +53,15 @@ export default function Login() {
 
   async function handleRegistro(e) {
     e.preventDefault(); setError('')
-    if (codigoAcceso !== CODIGO_ACCESO) { setError('Código de acceso incorrecto'); return }
     if (password !== confirmPassword) { setError('Las contraseñas no coinciden'); return }
     if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return }
     setCargando(true)
-    try { await createUserWithEmailAndPassword(auth, email, password); navigate('/vendedor') }
-    catch (err) {
+    try {
+      const codigoValido = await validarCodigo(codigoAcceso)
+      if (!codigoValido) { setError('Código de acceso incorrecto'); setCargando(false); return }
+      await createUserWithEmailAndPassword(auth, email, password)
+      navigate('/vendedor')
+    } catch (err) {
       if (err.code === 'auth/email-already-in-use') setError('Ese email ya está registrado')
       else if (err.code === 'auth/invalid-email') setError('El email no es válido')
       else setError('Error al crear la cuenta. Intentá de nuevo.')

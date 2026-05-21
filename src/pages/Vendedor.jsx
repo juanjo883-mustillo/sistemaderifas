@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { signOut, onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../firebase/config'
@@ -33,7 +33,7 @@ const s = {
     color: ocupado ? '#000' : '#555',
     border: ocupado ? '1px solid #e8bc4a' : '1px solid #2a2a2a',
   }),
-  filterBar: { display: 'flex', gap: '8px', marginBottom: '16px' },
+  filterBar: { display: 'flex', gap: '8px', marginBottom: '12px' },
   filterBtn: (active) => ({
     padding: '6px 16px', borderRadius: '50px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
     background: active ? '#c9a035' : 'transparent',
@@ -60,6 +60,32 @@ const s = {
   modalCard: { background: '#111', border: '1px solid #333', borderRadius: '20px', padding: '28px', maxWidth: '360px', width: '100%', textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' },
 }
 
+function exportarCSV(participantes, precio) {
+  const headers = ['Nombre', 'Apellido', 'Teléfono', 'Números', 'Total', 'Método de pago', 'Estado', 'Fecha']
+  const filas = participantes.map(p => [
+    p.nombre,
+    p.apellido,
+    p.telefono,
+    p.numeros?.sort((a, b) => a - b).join(' - ') || '',
+    (p.numeros?.length || 0) * (precio || 0),
+    p.metodoPago === 'mercadopago' ? 'Mercado Pago' : 'Efectivo',
+    p.pagado ? 'Pagado' : 'Pendiente',
+    p.creadoEn ? new Date(p.creadoEn.seconds * 1000).toLocaleDateString('es-AR') : '',
+  ])
+  const csv = [headers, ...filas]
+    .map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `participantes-${new Date().toLocaleDateString('es-AR').replace(/\//g, '-')}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 export default function Vendedor() {
   const navigate = useNavigate()
   const { rifa } = useRifa()
@@ -67,9 +93,12 @@ export default function Vendedor() {
   const [usuario, setUsuario] = useState(null)
   const [cargando, setCargando] = useState(true)
   const [filtro, setFiltro] = useState('todos')
+  const [busqueda, setBusqueda] = useState('')
   const [editando, setEditando] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmEliminar, setConfirmEliminar] = useState(null)
+  const [nuevasReservas, setNuevasReservas] = useState(0)
+  const prevCountRef = useRef(null)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => { if (!u) { navigate('/login'); return }; setUsuario(u) })
@@ -77,15 +106,31 @@ export default function Vendedor() {
   }, [navigate])
 
   useEffect(() => {
-    const unsub = suscribirParticipantes((lista) => { setParticipantes(lista.filter(p => !p._eliminado)); setCargando(false) })
+    const unsub = suscribirParticipantes((lista) => {
+      const activos = lista.filter(p => !p._eliminado)
+      setCargando(false)
+      if (prevCountRef.current !== null && activos.length > prevCountRef.current) {
+        setNuevasReservas(n => n + (activos.length - prevCountRef.current))
+      }
+      prevCountRef.current = activos.length
+      setParticipantes(activos)
+    })
     return unsub
   }, [])
 
-  const filtrados = participantes.filter(p => {
-    if (filtro === 'pagados') return p.pagado
-    if (filtro === 'pendientes') return !p.pagado
-    return true
-  })
+  const filtrados = participantes
+    .filter(p => {
+      const matchFiltro = filtro === 'todos' || (filtro === 'pagados' && p.pagado) || (filtro === 'pendientes' && !p.pagado)
+      if (!busqueda.trim()) return matchFiltro
+      const q = busqueda.toLowerCase()
+      return matchFiltro && (
+        p.nombre?.toLowerCase().includes(q) ||
+        p.apellido?.toLowerCase().includes(q) ||
+        p.telefono?.includes(q) ||
+        p.numeros?.some(n => String(n).includes(q))
+      )
+    })
+    .sort((a, b) => (b.creadoEn?.seconds || 0) - (a.creadoEn?.seconds || 0))
 
   const totalRecaudado = participantes.filter(p => p.pagado).reduce((a, p) => a + (p.numeros?.length || 0) * (rifa?.precio || 0), 0)
   const totalEsperado = participantes.reduce((a, p) => a + (p.numeros?.length || 0) * (rifa?.precio || 0), 0)
@@ -116,7 +161,15 @@ export default function Vendedor() {
               <p style={s.emailText}>{usuario?.email}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {nuevasReservas > 0 && (
+              <button
+                onClick={() => setNuevasReservas(0)}
+                style={{ background: '#ef5350', color: '#fff', fontSize: '11px', fontWeight: '700', padding: '5px 12px', borderRadius: '50px', border: 'none', cursor: 'pointer', animation: 'pulse 1.5s infinite' }}
+              >
+                🔔 +{nuevasReservas} nueva{nuevasReservas > 1 ? 's' : ''}
+              </button>
+            )}
             <button onClick={() => setEditando(true)} style={s.btnEditar}>✏️ Editar rifa</button>
             <button onClick={() => { signOut(auth); navigate('/login') }} style={s.btnSalir}>Salir</button>
           </div>
@@ -132,6 +185,11 @@ export default function Vendedor() {
               <div>
                 <p style={{ fontFamily: 'Georgia, serif', fontWeight: '700', color: '#fff', fontSize: '15px', margin: 0 }}>{rifa.titulo}</p>
                 <p style={{ color: '#c9a035', fontSize: '12px', margin: '2px 0 0' }}>${rifa.precio?.toLocaleString()} por número</p>
+                {rifa.fechaFin && (
+                  <p style={{ color: '#888', fontSize: '11px', margin: '2px 0 0' }}>
+                    Cierre: {(rifa.fechaFin.toDate ? rifa.fechaFin.toDate() : new Date(rifa.fechaFin)).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
+                  </p>
+                )}
               </div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {rifa.premios?.map((p, i) => (
@@ -187,6 +245,23 @@ export default function Vendedor() {
           </div>
         )}
 
+        {/* Buscador y exportar */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', alignItems: 'center' }}>
+          <input
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre, teléfono o número..."
+            style={{ flex: 1, background: '#111', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '9px 14px', fontSize: '13px', color: '#fff', outline: 'none' }}
+          />
+          <button
+            onClick={() => exportarCSV(participantes, rifa?.precio)}
+            title="Exportar a CSV"
+            style={{ background: '#1a3a1a', border: '1px solid #2e7d32', color: '#66bb6a', fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            ⬇ CSV
+          </button>
+        </div>
+
         {/* Filtros */}
         <div style={s.filterBar}>
           {['todos', 'pagados', 'pendientes'].map(f => (
@@ -202,42 +277,42 @@ export default function Vendedor() {
         {/* Lista participantes */}
         <div>
           {filtrados.length === 0 && (
-            <p style={{ color: '#555', textAlign: 'center', padding: '40px 0', fontSize: '14px' }}>No hay participantes aún</p>
+            <p style={{ color: '#555', textAlign: 'center', padding: '40px 0', fontSize: '14px' }}>
+              {busqueda ? 'Sin resultados para esa búsqueda' : 'No hay participantes aún'}
+            </p>
           )}
-          {filtrados
-            .sort((a, b) => (b.creadoEn?.seconds || 0) - (a.creadoEn?.seconds || 0))
-            .map(p => (
-              <div key={p.id} style={s.participantCard(p.pagado)}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontWeight: '700', color: '#fff', fontSize: '14px', margin: '0 0 2px' }}>{p.nombre} {p.apellido}</p>
-                    <p style={{ color: '#888', fontSize: '12px', margin: '0 0 1px' }}>{p.telefono}</p>
-                    <p style={{ color: '#666', fontSize: '12px', margin: '0 0 8px' }}>
-                      Pago a nombre de: <span style={{ color: '#ccc', fontWeight: '600' }}>{p.nombrePago}</span>
-                    </p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
-                      {p.numeros?.sort((a, b) => a - b).map(n => (
-                        <span key={n} style={s.numeroBadge}>#{n}</span>
-                      ))}
-                    </div>
-                    <p style={{ color: '#666', fontSize: '12px', margin: 0 }}>
-                      {p.metodoPago === 'mercadopago' ? '💳 Mercado Pago' : '💵 Efectivo'} ·{' '}
-                      <span style={{ color: '#e8bc4a', fontWeight: '700' }}>${((p.numeros?.length || 0) * (rifa?.precio || 0)).toLocaleString()}</span>
-                    </p>
+          {filtrados.map(p => (
+            <div key={p.id} style={s.participantCard(p.pagado)}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: '700', color: '#fff', fontSize: '14px', margin: '0 0 2px' }}>{p.nombre} {p.apellido}</p>
+                  <p style={{ color: '#888', fontSize: '12px', margin: '0 0 1px' }}>{p.telefono}</p>
+                  <p style={{ color: '#666', fontSize: '12px', margin: '0 0 8px' }}>
+                    Pago a nombre de: <span style={{ color: '#ccc', fontWeight: '600' }}>{p.nombrePago}</span>
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                    {p.numeros?.sort((a, b) => a - b).map(n => (
+                      <span key={n} style={s.numeroBadge}>#{n}</span>
+                    ))}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 }}>
-                    <span style={s.badge(p.pagado)}>{p.pagado ? '✓ Pagado' : '⏳ Pendiente'}</span>
-                    <button onClick={() => togglePagado(p.id, !p.pagado)} style={s.btnToggle(p.pagado)}>
-                      {p.pagado ? 'Marcar pendiente' : 'Marcar pagado'}
-                    </button>
-                    <button onClick={() => setConfirmEliminar(p)}
-                      style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '50px', fontWeight: '600', cursor: 'pointer', background: 'transparent', color: '#ef5350', border: '1px solid #4a1515' }}>
-                      Eliminar
-                    </button>
-                  </div>
+                  <p style={{ color: '#666', fontSize: '12px', margin: 0 }}>
+                    {p.metodoPago === 'mercadopago' ? '💳 Mercado Pago' : '💵 Efectivo'} ·{' '}
+                    <span style={{ color: '#e8bc4a', fontWeight: '700' }}>${((p.numeros?.length || 0) * (rifa?.precio || 0)).toLocaleString()}</span>
+                  </p>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 }}>
+                  <span style={s.badge(p.pagado)}>{p.pagado ? '✓ Pagado' : '⏳ Pendiente'}</span>
+                  <button onClick={() => togglePagado(p.id, !p.pagado)} style={s.btnToggle(p.pagado)}>
+                    {p.pagado ? 'Marcar pendiente' : 'Marcar pagado'}
+                  </button>
+                  <button onClick={() => setConfirmEliminar(p)}
+                    style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '50px', fontWeight: '600', cursor: 'pointer', background: 'transparent', color: '#ef5350', border: '1px solid #4a1515' }}>
+                    Eliminar
+                  </button>
                 </div>
               </div>
-            ))}
+            </div>
+          ))}
         </div>
       </div>
 
