@@ -45,13 +45,21 @@ export default function RifaEditor({ rifa, onClose }) {
   const [whatsapp, setWhatsapp] = useState(rifa.whatsapp || '')
   const [linkMP, setLinkMP] = useState(rifa.linkMercadoPago || '')
   const [premios, setPremios] = useState(rifa.premios || [])
-  const [fechaFin, setFechaFin] = useState(() => {
+  const [fechaFinDate, setFechaFinDate] = useState(() => {
     if (!rifa.fechaFin) return ''
     try {
       const d = rifa.fechaFin.toDate ? rifa.fechaFin.toDate() : new Date(rifa.fechaFin)
       const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-      return local.toISOString().slice(0, 16)
+      return local.toISOString().slice(0, 10)
     } catch { return '' }
+  })
+  const [fechaFinTime, setFechaFinTime] = useState(() => {
+    if (!rifa.fechaFin) return '20:00'
+    try {
+      const d = rifa.fechaFin.toDate ? rifa.fechaFin.toDate() : new Date(rifa.fechaFin)
+      const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      return local.toISOString().slice(11, 16)
+    } catch { return '20:00' }
   })
   const [guardando, setGuardando] = useState(false)
   const [subiendo, setSubiendo] = useState(null)
@@ -75,7 +83,8 @@ export default function RifaEditor({ rifa, onClose }) {
   async function guardar() {
     setGuardando(true); setMensaje('')
     try {
-      await actualizarConfigRifa({ titulo, descripcion, precio: Number(precio), whatsapp, linkMercadoPago: linkMP, fechaFin: fechaFin ? new Date(fechaFin) : null })
+      const fechaFinValue = fechaFinDate ? new Date(`${fechaFinDate}T${fechaFinTime}`) : null
+      await actualizarConfigRifa({ titulo, descripcion, precio: Number(precio), whatsapp, linkMercadoPago: linkMP, fechaFin: fechaFinValue })
       await actualizarPremios(premios)
       setMensaje('¡Rifa guardada correctamente!')
       setTimeout(() => { setMensaje(''); onClose() }, 1500)
@@ -130,11 +139,26 @@ export default function RifaEditor({ rifa, onClose }) {
               </div>
               <div>
                 <label style={s.label}>Fecha límite de la rifa (opcional)</label>
-                <input type="datetime-local" value={fechaFin} onChange={e => setFechaFin(e.target.value)} style={s.input} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                  <input
+                    type="date"
+                    value={fechaFinDate}
+                    onChange={e => setFechaFinDate(e.target.value)}
+                    style={s.input}
+                    placeholder="Fecha"
+                  />
+                  <input
+                    type="time"
+                    value={fechaFinTime}
+                    onChange={e => setFechaFinTime(e.target.value)}
+                    style={{ ...s.input, width: '110px' }}
+                    disabled={!fechaFinDate}
+                  />
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
                   <p style={{ color: '#555', fontSize: '11px', margin: 0 }}>Si la ponés, aparece cuenta regresiva en la rifa</p>
-                  {fechaFin && (
-                    <button type="button" onClick={() => setFechaFin('')} style={{ background: 'none', border: 'none', color: '#ef5350', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
+                  {fechaFinDate && (
+                    <button type="button" onClick={() => { setFechaFinDate(''); setFechaFinTime('20:00') }} style={{ background: 'none', border: 'none', color: '#ef5350', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
                       ✕ Quitar fecha
                     </button>
                   )}

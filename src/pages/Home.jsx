@@ -7,15 +7,21 @@ import { liberarReservasExpiradas, crearReservaTemporal } from '../firebase/rifa
 const MAX_NUMEROS = 20
 
 function useCountdownRifa(fechaFin) {
-  const [restante, setRestante] = useState(null)
+  // Usar milisegundos como dependencia evita re-renders por cambio de referencia del Timestamp
+  const targetMs = fechaFin?.toDate?.()?.getTime() ?? (fechaFin ? new Date(fechaFin).getTime() : null)
+
+  const [restante, setRestante] = useState(() =>
+    targetMs ? Math.max(0, targetMs - Date.now()) : null
+  )
+
   useEffect(() => {
-    if (!fechaFin) { setRestante(null); return }
-    const target = fechaFin.toDate ? fechaFin.toDate() : new Date(fechaFin)
-    function tick() { setRestante(Math.max(0, target - new Date())) }
+    if (!targetMs) { setRestante(null); return }
+    function tick() { setRestante(Math.max(0, targetMs - Date.now())) }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
-  }, [fechaFin])
+  }, [targetMs])
+
   return restante
 }
 
@@ -288,6 +294,16 @@ export default function Home() {
         <p className="text-center text-gray-600 text-xs mt-6">
           El Rincón Criollo · Rifas con tradición 🐄
         </p>
+
+        {/* Acceso vendedor */}
+        <div className="text-center mt-3 pb-2">
+          <button
+            onClick={() => navigate('/login')}
+            style={{ background: 'none', border: '1px solid #2a2a2a', color: '#444', fontSize: '11px', cursor: 'pointer', padding: '5px 16px', borderRadius: '50px' }}
+          >
+            Acceso a vendedor
+          </button>
+        </div>
       </div>
     </div>
   )
